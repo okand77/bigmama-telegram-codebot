@@ -116,8 +116,9 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
     await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply(`Here is your discount code: ${code}`);
 
-    const drinkPrompt = await getDrinkMessage();
-    await ctx.reply(drinkPrompt);
+const drinkPrompt = await getDrinkMessage();
+if (drinkPrompt) {
+  await ctx.reply(drinkPrompt);
 
   } else if (codeCount === 1) {
     const code = await getRandomCode('Code');
