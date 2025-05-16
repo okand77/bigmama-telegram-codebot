@@ -50,21 +50,23 @@ async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
 async function getDrinkMessage() {
   const sheet = doc.sheetsByTitle['Drink message'];
   const rows = await sheet.getRows();
-  const active = rows.filter(row => row._rawData[0]); // sadece numaralı satırlar
-  if (!active.length) return '';
-  return active[Math.floor(Math.random() * active.length)]._rawData[1];
+  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+  if (!valid.length) return '';
+  return valid[Math.floor(Math.random() * valid.length)]._rawData[1];
 }
 
-async function getFollowupPizzaMessage(userId) {
+async function getFollowupPizzaMessage() {
   const sheet = doc.sheetsByTitle['Messages'];
   const rows = await sheet.getRows();
-  const numbered = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
-  const sorted = numbered.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
+  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+  const sorted = valid.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
 
-  const counter = userMessageMap.get(userId) || 0;
-  const index = counter < 3 ? counter : Math.floor(Math.random() * (sorted.length - 3)) + 3;
+  if (sorted.length <= 3) return sorted[0]._rawData[1];
 
-  userMessageMap.set(userId, counter + 1);
+  const userId = userMessageMap.get('counter') || 0;
+  let index = userId < 3 ? userId : Math.floor(Math.random() * (sorted.length - 3)) + 3;
+
+  userMessageMap.set('counter', userId + 1);
   return sorted[index]?._rawData[1];
 }
 
