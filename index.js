@@ -34,117 +34,122 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
   return random._rawData[0];
 }
 
-async function hasReceivedCodeToday(telegramID) {
-  const sheet = doc.sheetsByTitle['Users'];
-  const rows = await sheet.getRows();
-  const today = new Date().toLocaleDateString();
-  return rows.some(row => row.TelegramID === telegramID.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
-}
-
-async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
-  const sheet = doc.sheetsByTitle['Users'];
-  await sheet.addRow({
-    Timestamp: new Date().toLocaleString(),
-    Name: name,
-    Username: username,
-    TelegramID: telegramID,
-    Code: code,
-    'Drink code': drinkCode
-  });
-}
-
-// SABİT içecek mesajı
 async function getDrinkMessage() {
-  return "Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤";
+  const sheet = doc.sheetsByTitle['Drink message'];
+  const rows = await sheet.getRows();
+  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+  if (!valid.length) return '';
+  return valid[Math.floor(Math.random() * valid.length)]._rawData[1];
 }
 
-// SABİT esprili pizza mesajları
 async function getFollowupPizzaMessage() {
-  const messages = [
-    "😬 My boss will fire me for this...",
-    "Still too early to give another one 😅",
-    "Come back tomorrow. Just a few hours to go! ⏳",
-    "Bring a friend and they’ll get a code on their phone! 😉",
-    "Too many pizzas today! Even the oven needs a break. 🔥",
-    "You’re back?! You really love discounts huh? 😂",
-    "Hang tight! I’m reloading codes for tomorrow. ⏱️",
-    "You’ve reached max pizza joy for today! 🎉",
-    "Okay okay… tomorrow is another delicious day! 🍕",
-    "I feel like a discount dealer now 😄"
-  ];
+  const sheet = doc.sheetsByTitle['Messages'];
+  const rows = await sheet.getRows();
+  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+  const sorted = valid.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
 
-  return messages[Math.floor(Math.random() * messages.length)];
+  if (sorted.length <= 3) return sorted[0]._rawData[1];
+
+  const userId = userMessageMap.get('counter') || 0;
+  let index = userId < 3 ? userId : Math.floor(Math.random() * (sorted.length - 3)) + 3;
+  userMessageMap.set('counter', userId + 1);
+
+  return sorted[index]?._rawData[1];
 }
+
+const userMessageMap = new Map();
 
 bot.start((ctx) => {
   ctx.reply('Welcome! You scanned the QR code and activated your discount.');
 });
 
 bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
-  try {
-    await loadSheet();
-    const userId = ctx.from.id;
-    const alreadyClaimed = await hasReceivedCodeToday(userId);
+  await loadSheet();
+  const userId = ctx.from.id;
+  const today = new Date().toLocaleDateString();
+  const sheet = doc.sheetsByTitle['Users'];
+  const rows = await sheet.getRows();
+  const todayRows = rows.filter(row => row.TelegramID === userId.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+  const pizzaCodesToday = todayRows.filter(row => row.Code).length;
+
+  if (pizzaCodesToday === 0) {
     const code = await getRandomCode('Code');
     if (!code) return ctx.reply('Sorry, we are out of pizza codes. Bring a friend and try their phone! 🍕');
 
-    if (alreadyClaimed) {
-      await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
-    } else {
-      await writeToSheet(ctx.from.first_name, ctx.from.username, ctx.from.id, code);
-      await ctx.reply(`Here is your discount code: ${code}`);
+    await sheet.addRow({
+      Timestamp: new Date().toLocaleString(),
+      Name: ctx.from.first_name,
+      Username: ctx.from.username,
+      TelegramID: userId,
+      Code: code,
+    });
 
-      const drinkPrompt = await getDrinkMessage();
-      if (drinkPrompt) {
-        await ctx.reply(drinkPrompt);
-      }
+    await ctx.reply(`Here is your discount code: ${code}`);
+
+    const drinkPrompt = await getDrinkMessage();
+    if (drinkPrompt) {
+      await ctx.reply(drinkPrompt);
     }
-  } catch (error) {
-    console.error('Main message error:', error);
-    ctx.reply("Something went wrong. Please try again later.");
+  } else if (pizzaCodesToday === 1) {
+    const code = await getRandomCode('Code');
+    if (!code) return ctx.reply('Sorry, we are out of pizza codes. Bring a friend and try their phone! 🍕');
+
+    await sheet.addRow({
+      Timestamp: new Date().toLocaleString(),
+      Name: ctx.from.first_name,
+      Username: ctx.from.username,
+      TelegramID: userId,
+      Code: code,
+    });
+
+    await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
+  } else {
+    const message = await getFollowupPizzaMessage();
+    await sheet.addRow({
+      Timestamp: new Date().toLocaleString(),
+      Name: ctx.from.first_name,
+      Username: ctx.from.username,
+      TelegramID: userId,
+      Code: '',
+    });
+    if (message) await ctx.reply(message);
   }
 });
 
 bot.hears(/^(yes|drink)$/i, async (ctx) => {
-  try {
-    await loadSheet();
-    const userId = ctx.from.id;
-    const today = new Date().toLocaleDateString();
-    const sheet = doc.sheetsByTitle['Users'];
-    const rows = await sheet.getRows();
-    const todayRows = rows.filter(row => row.TelegramID === userId.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+  await loadSheet();
+  const userId = ctx.from.id;
+  const today = new Date().toLocaleDateString();
+  const sheet = doc.sheetsByTitle['Users'];
+  const rows = await sheet.getRows();
+  const todayRows = rows.filter(row => row.TelegramID === userId.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
 
-    if (!todayRows.length) {
-      return ctx.reply("Please get your pizza discount first. Just say 'pizza'. 🍕");
-    }
-
-    const alreadyHasDrink = todayRows[0]['Drink code'];
-    if (alreadyHasDrink) {
-      return ctx.reply("That's all for today! Come back tomorrow for another drink code. 🥤");
-    }
-
-    const drinkCode = await getRandomCode('DrinkCode');
-    if (!drinkCode) return ctx.reply('Sorry, drink codes are finished. 🥤');
-
-    todayRows[0]['Drink code'] = drinkCode;
-    await todayRows[0].save();
-    await ctx.reply(`Here is your drink code: ${drinkCode}`);
-  } catch (error) {
-    console.error('Drink message error:', error);
-    ctx.reply("Something went wrong while processing your drink code.");
+  const alreadyHasDrink = todayRows.find(row => row['Drink code']);
+  if (alreadyHasDrink) {
+    return ctx.reply("That's all for today! Come back tomorrow for another drink code. 🥤");
   }
+
+  const drinkCode = await getRandomCode('DrinkCode');
+  if (!drinkCode) return ctx.reply('Sorry, drink codes are finished. 🥤');
+
+  await sheet.addRow({
+    Timestamp: new Date().toLocaleString(),
+    Name: ctx.from.first_name,
+    Username: ctx.from.username,
+    TelegramID: userId,
+    Code: '',
+    'Drink code': drinkCode,
+  });
+
+  await ctx.reply(`Here is your drink code: ${drinkCode}`);
 });
 
 bot.hears(/.*/, async (ctx) => {
-  try {
-    const msg = ctx.message.text.toLowerCase();
-    if (msg.includes('pizza') || msg.includes('hi') || msg.includes('drink') || msg.includes('yes')) return;
+  const msg = ctx.message.text.toLowerCase();
+  if (msg.includes('pizza') || msg.includes('hi') || msg.includes('drink') || msg.includes('yes')) return;
 
-    const response = await getFollowupPizzaMessage();
-    if (response) await ctx.reply(response);
-  } catch (error) {
-    console.error('Fallback message error:', error);
-  }
+  const response = await getFollowupPizzaMessage();
+  if (response) await ctx.reply(response);
 });
 
 bot.launch();
