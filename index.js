@@ -7,6 +7,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const SHEET_ID = process.env.SPREADSHEET_ID;
 let doc;
+const messageCountMap = new Map(); // Kullanıcı başına mesaj sayacı
 
 async function loadSheet() {
   doc = new GoogleSpreadsheet(SHEET_ID);
@@ -62,20 +63,25 @@ async function hasReceivedCodeCountToday(telegramID) {
 
 const drinkMessage = `Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤 If you want, just say "drink".`;
 
-const pizzaMessages = [
-  'Uh-oh… My boss is going to fire me if I give one more today! 😅',
-  'Time’s ticking… Just xx hours left until fresh codes roll out! ⏳',
-  'Tempting me won’t work… unless you show up with a friend’s phone 😉',
-  'No more codes today, but your loyalty is extra cheesy ❤️',
-  'Bring a friend and let them scan to get today’s code! 📱',
-  'I’m out of codes, but not out of love 🍕💛',
-  'Just a few hours to go. You got this. 🔁',
-  'Come back tomorrow — fresh codes at noon sharp! ⏰',
-  'You’re out of pizza luck today, but drinks still flow 🥤',
-  'Hang tight! New codes arrive with the Phnom Penh sun 🌤️'
-];
+async function getFollowupPizzaMessage(userId) {
+  const sheet = doc.sheetsByTitle['Messages'];
+  const rows = await sheet.getRows();
+  const validRows = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+  const sorted = validRows.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
 
-const userMessageMap = new Map();
+  const counter = messageCountMap.get(userId) || 0;
+  let message;
+
+  if (counter < 2) {
+    message = sorted[counter]?._rawData[1];
+  } else {
+    const randomIndex = Math.floor(Math.random() * (sorted.length - 2)) + 2;
+    message = sorted[randomIndex]?._rawData[1];
+  }
+
+  messageCountMap.set(userId, counter + 1);
+  return message || "Oops! No message found.";
+}
 
 bot.start((ctx) => {
   ctx.reply('Welcome! You scanned the QR code and activated your discount.');
@@ -93,21 +99,17 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   if (codeCount === 0) {
     const code = await getRandomCode('Code');
     if (!code) return ctx.reply("Sorry, pizza codes are finished. Bring a friend and try their phone. 🍕");
-    
     await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply(`Here is your discount code: ${code}`);
     await ctx.reply(drinkMessage);
   } else if (codeCount === 1) {
     const code = await getRandomCode('Code');
     if (!code) return ctx.reply("Sorry, pizza codes are finished. 🍕");
-
     await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
   } else {
-    const index = userMessageMap.get(userId) || 0;
-    const message = index < 3 ? pizzaMessages[index] : pizzaMessages[Math.floor(Math.random() * pizzaMessages.length)];
-    await ctx.reply(message);
-    userMessageMap.set(userId, index + 1);
+    const response = await getFollowupPizzaMessage(userId);
+    await ctx.reply(response);
   }
 });
 
@@ -127,10 +129,8 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
 bot.hears(/.*/, async (ctx) => {
   const msg = ctx.message.text.toLowerCase();
   if (msg.includes('pizza') || msg.includes('hi') || msg.includes('discount') || msg.includes('drink') || msg.includes('yes')) return;
-  const index = userMessageMap.get(ctx.from.id) || 0;
-  const message = index < 3 ? pizzaMessages[index] : pizzaMessages[Math.floor(Math.random() * pizzaMessages.length)];
-  await ctx.reply(message);
-  userMessageMap.set(ctx.from.id, index + 1);
+  const response = await getFollowupPizzaMessage(ctx.from.id);
+  if (response) await ctx.reply(response);
 });
 
 bot.launch();
