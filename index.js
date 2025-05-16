@@ -93,12 +93,14 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   if (codeCount === 0) {
     const code = await getRandomCode('Code');
     if (!code) return ctx.reply("Sorry, pizza codes are finished. Bring a friend and try their phone. 🍕");
+    
     await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply(`Here is your discount code: ${code}`);
     await ctx.reply(drinkMessage);
   } else if (codeCount === 1) {
     const code = await getRandomCode('Code');
     if (!code) return ctx.reply("Sorry, pizza codes are finished. 🍕");
+
     await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
   } else {
