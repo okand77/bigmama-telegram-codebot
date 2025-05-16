@@ -7,6 +7,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const SHEET_ID = process.env.SPREADSHEET_ID;
 let doc;
+const userMessageMap = new Map();
 
 async function loadSheet() {
   doc = new GoogleSpreadsheet(SHEET_ID);
@@ -49,29 +50,23 @@ async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
 async function getDrinkMessage() {
   const sheet = doc.sheetsByTitle['Drink message'];
   const rows = await sheet.getRows();
-  if (!rows.length) return '';
-  return rows[Math.floor(Math.random() * rows.length)]._rawData[0];
+  const active = rows.filter(row => row._rawData[0]); // sadece numaralı satırlar
+  if (!active.length) return '';
+  return active[Math.floor(Math.random() * active.length)]._rawData[1];
 }
 
-async function getFollowupPizzaMessage() {
+async function getFollowupPizzaMessage(userId) {
   const sheet = doc.sheetsByTitle['Messages'];
   const rows = await sheet.getRows();
-  if (!rows.length) return '';
-
   const numbered = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
   const sorted = numbered.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
 
-  if (sorted.length <= 3) return sorted[0]._rawData[1];
+  const counter = userMessageMap.get(userId) || 0;
+  const index = counter < 3 ? counter : Math.floor(Math.random() * (sorted.length - 3)) + 3;
 
-  // sabit ilk 3 mesaj sırayla gelsin, sonra random gelsin
-  const userId = userMessageMap.get('counter') || 0;
-  let index = userId < 3 ? userId : Math.floor(Math.random() * (sorted.length - 3)) + 3;
-
-  userMessageMap.set('counter', userId + 1);
+  userMessageMap.set(userId, counter + 1);
   return sorted[index]?._rawData[1];
 }
-
-const userMessageMap = new Map();
 
 bot.start((ctx) => {
   ctx.reply('Welcome! You scanned the QR code and activated your discount.');
@@ -89,7 +84,6 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   } else {
     await writeToSheet(ctx.from.first_name, ctx.from.username, ctx.from.id, code);
     await ctx.reply(`Here is your discount code: ${code}`);
-
     const drinkPrompt = await getDrinkMessage();
     if (drinkPrompt) {
       await ctx.reply(drinkPrompt);
@@ -127,7 +121,7 @@ bot.hears(/.*/, async (ctx) => {
   const msg = ctx.message.text.toLowerCase();
   if (msg.includes('pizza') || msg.includes('hi') || msg.includes('drink') || msg.includes('yes')) return;
 
-  const response = await getFollowupPizzaMessage();
+  const response = await getFollowupPizzaMessage(ctx.from.id);
   if (response) await ctx.reply(response);
 });
 
