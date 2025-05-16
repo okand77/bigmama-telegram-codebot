@@ -5,7 +5,7 @@ const { Telegraf } = require('telegraf');
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-const SHEET_ID = process.env.SPREADSHEET_ID;
+const SHEET_ID = '1D9ikPNR8kCKy1GC3jrDQRj5KnfZK5imSbsghNnQ7mXI';
 let doc;
 const userMap = new Map();
 
@@ -37,7 +37,14 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
 
 async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
   const sheet = doc.sheetsByTitle['Users'];
-  await sheet.addRow({ Timestamp: new Date().toLocaleString(), Name: name, Username: username, TelegramID: telegramID, Code: code, 'Drink code': drinkCode });
+  await sheet.addRow({
+    Timestamp: new Date().toLocaleString(),
+    Name: name,
+    Username: username,
+    TelegramID: telegramID,
+    Code: code,
+    'Drink code': drinkCode
+  });
 }
 
 bot.start((ctx) => {
@@ -73,7 +80,7 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
   if (!drinkCode) return ctx.reply('Sorry, drink codes are finished.');
 
   const rows = await doc.sheetsByTitle['Users'].getRows();
-  const latestRow = rows.reverse().find(row => row.TelegramID === ctx.from.id.toString());
+  const latestRow = rows.reverse().find(row => row.TelegramID == ctx.from.id);
   if (latestRow) {
     latestRow['Drink code'] = drinkCode;
     await latestRow.save();
