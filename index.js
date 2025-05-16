@@ -48,26 +48,36 @@ async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
 }
 
 async function getDrinkMessage() {
-  const sheet = doc.sheetsByTitle['Drink message'];
-  const rows = await sheet.getRows();
-  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
-  if (!valid.length) return '';
-  return valid[Math.floor(Math.random() * valid.length)]._rawData[1];
+  try {
+    const sheet = doc.sheetsByTitle['Drink message'];
+    const rows = await sheet.getRows();
+    const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+    if (!valid.length) return '';
+    return valid[Math.floor(Math.random() * valid.length)]._rawData[1];
+  } catch (err) {
+    console.error("DRINK MESSAGE ERROR:", err.message);
+    return '';
+  }
 }
 
 async function getFollowupPizzaMessage() {
-  const sheet = doc.sheetsByTitle['Messages'];
-  const rows = await sheet.getRows();
-  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
-  const sorted = valid.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
+  try {
+    const sheet = doc.sheetsByTitle['Messages'];
+    const rows = await sheet.getRows();
+    const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+    const sorted = valid.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
 
-  if (sorted.length <= 3) return sorted[0]._rawData[1];
+    if (sorted.length <= 3) return sorted[0]._rawData[1];
 
-  const userId = userMessageMap.get('counter') || 0;
-  let index = userId < 3 ? userId : Math.floor(Math.random() * (sorted.length - 3)) + 3;
+    const userId = userMessageMap.get('counter') || 0;
+    const index = userId < 3 ? userId : Math.floor(Math.random() * (sorted.length - 3)) + 3;
 
-  userMessageMap.set('counter', userId + 1);
-  return sorted[index]?._rawData[1];
+    userMessageMap.set('counter', userId + 1);
+    return sorted[index]?._rawData[1];
+  } catch (err) {
+    console.error("PIZZA MESSAGE ERROR:", err.message);
+    return '';
+  }
 }
 
 bot.start((ctx) => {
