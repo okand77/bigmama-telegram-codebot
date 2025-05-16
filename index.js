@@ -84,10 +84,17 @@ async function getFollowupPizzaMessage(userId) {
 async function getDrinkMessage() {
   const sheet = doc.sheetsByTitle['Drink message'];
   const rows = await sheet.getRows();
-  const validRows = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
-  const sorted = validRows.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
-  const randomIndex = Math.floor(Math.random() * sorted.length);
-  return sorted[randomIndex]?._rawData[1] || "Would you like a drink too? 🥤";
+
+  // Sadece A sütununda (._rawData[0]) sayı olan satırları al ve B sütunundaki mesajı (._rawData[1]) döndür
+  const valid = rows.filter(row => {
+    const num = parseInt(row._rawData[0]);
+    return !isNaN(num) && row._rawData[1];
+  });
+
+  if (!valid.length) return '';
+
+  // B sütunundaki (index 1) mesajlardan rastgele birini seç
+  return valid[Math.floor(Math.random() * valid.length)]._rawData[1];
 }
 
 bot.start((ctx) => {
