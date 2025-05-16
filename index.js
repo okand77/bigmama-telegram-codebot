@@ -7,12 +7,18 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const SHEET_ID = process.env.SPREADSHEET_ID;
 let doc;
-const userMessageMap = new Map();
 
 async function loadSheet() {
   doc = new GoogleSpreadsheet(SHEET_ID);
   await doc.useServiceAccountAuth(creds);
   await doc.loadInfo();
+}
+
+function isWithinTimeWindow() {
+  const now = new Date();
+  const phnomPenhTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Phnom_Penh' }));
+  const hour = phnomPenhTime.getHours();
+  return hour >= 12 && hour < 24;
 }
 
 async function getRandomCode(sheetTitle, columnIndex = 1) {
@@ -31,36 +37,10 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
   return random._rawData[0];
 }
 
-async function getDrinkMessage() {
-  const sheet = doc.sheetsByTitle['Drink message'];
-  const rows = await sheet.getRows();
-  const valid = rows.filter(row => row._rawData[0]);
-  if (!valid.length) return '';
-  return valid[Math.floor(Math.random() * valid.length)]._rawData[1];
-}
-
-async function getFollowupPizzaMessage() {
-  const sheet = doc.sheetsByTitle['Messages'];
-  const rows = await sheet.getRows();
-  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
-  const sorted = valid.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
-  if (sorted.length <= 3) return sorted[0]._rawData[1];
-  const count = userMessageMap.get('counter') || 0;
-  const index = count < 3 ? count : Math.floor(Math.random() * (sorted.length - 3)) + 3;
-  userMessageMap.set('counter', count + 1);
-  return sorted[index]._rawData[1];
-}
-
-function isInActiveHours() {
-  const now = new Date();
-  const hour = now.getUTCHours() + 7; // Phnom Penh = UTC+7
-  return hour >= 12 && hour < 24;
-}
-
 async function writeToSheet(name, username, telegramID, code = '', drinkCode = '') {
   const sheet = doc.sheetsByTitle['Users'];
   await sheet.addRow({
-    Timestamp: new Date().toLocaleString(),
+    Timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Phnom_Penh' }),
     Name: name,
     Username: username,
     TelegramID: telegramID,
@@ -69,65 +49,86 @@ async function writeToSheet(name, username, telegramID, code = '', drinkCode = '
   });
 }
 
-async function getTodayEntries(telegramID) {
+async function hasReceivedCodeCountToday(telegramID) {
   const sheet = doc.sheetsByTitle['Users'];
   const rows = await sheet.getRows();
-  const today = new Date().toLocaleDateString();
-  return rows.filter(row => row.TelegramID === telegramID.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+  const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' });
+  return rows.filter(row =>
+    row.TelegramID === telegramID.toString() &&
+    new Date(row.Timestamp).toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' }) === today &&
+    row.Code
+  ).length;
 }
 
-bot.start(ctx => {
+const drinkMessage = `Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤 If you want, just say "drink".`;
+
+const pizzaMessages = [
+  'Uh-oh… My boss is going to fire me if I give one more today! 😅',
+  'Time’s ticking… Just xx hours left until fresh codes roll out! ⏳',
+  'Tempting me won’t work… unless you show up with a friend’s phone 😉',
+  'No more codes today, but your loyalty is extra cheesy ❤️',
+  'Bring a friend and let them scan to get today’s code! 📱',
+  'I’m out of codes, but not out of love 🍕💛',
+  'Just a few hours to go. You got this. 🔁',
+  'Come back tomorrow — fresh codes at noon sharp! ⏰',
+  'You’re out of pizza luck today, but drinks still flow 🥤',
+  'Hang tight! New codes arrive with the Phnom Penh sun 🌤️'
+];
+
+const userMessageMap = new Map();
+
+bot.start((ctx) => {
   ctx.reply('Welcome! You scanned the QR code and activated your discount.');
 });
 
 bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   await loadSheet();
-
-  if (!isInActiveHours()) {
-    return ctx.reply("Discounts are available between 12:00 PM and 12:00 AM Phnom Penh time. Please come back later!");
+  if (!isWithinTimeWindow()) {
+    return ctx.reply("Sorry! Discount codes are only available from 12:00 PM to 12:00 AM Phnom Penh time. ⏰");
   }
 
   const userId = ctx.from.id;
-  const name = ctx.from.first_name;
-  const username = ctx.from.username;
-  const todayEntries = await getTodayEntries(userId);
-  const pizzaCodes = todayEntries.filter(r => r.Code);
+  const codeCount = await hasReceivedCodeCountToday(userId);
 
-  if (pizzaCodes.length === 0) {
+  if (codeCount === 0) {
     const code = await getRandomCode('Code');
-    if (!code) return ctx.reply('Sorry, we are out of pizza codes. Bring a friend and try their phone! 🍕');
-    await writeToSheet(name, username, userId, code);
+    if (!code) return ctx.reply("Sorry, pizza codes are finished. Bring a friend and try their phone. 🍕");
+    await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply(`Here is your discount code: ${code}`);
-    const drinkPrompt = await getDrinkMessage();
-    if (drinkPrompt) await ctx.reply(drinkPrompt);
-  } else if (pizzaCodes.length === 1) {
+    await ctx.reply(drinkMessage);
+  } else if (codeCount === 1) {
     const code = await getRandomCode('Code');
-    if (!code) return ctx.reply('Sorry, no more pizza codes available today.');
-    await writeToSheet(name, username, userId, code);
+    if (!code) return ctx.reply("Sorry, pizza codes are finished. 🍕");
+    await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
   } else {
-    const msg = await getFollowupPizzaMessage();
-    if (msg) await ctx.reply(msg);
-    await writeToSheet(name, username, userId);
+    const index = userMessageMap.get(userId) || 0;
+    const message = index < 3 ? pizzaMessages[index] : pizzaMessages[Math.floor(Math.random() * pizzaMessages.length)];
+    await ctx.reply(message);
+    userMessageMap.set(userId, index + 1);
   }
 });
 
 bot.hears(/^(yes|drink)$/i, async (ctx) => {
   await loadSheet();
+  if (!isWithinTimeWindow()) {
+    return ctx.reply("Drink promo is only available between 12:00 PM and 12:00 AM. 🕛");
+  }
+
   const userId = ctx.from.id;
-  const name = ctx.from.first_name;
-  const username = ctx.from.username;
-  const todayEntries = await getTodayEntries(userId);
-  const alreadyHasDrink = todayEntries.find(r => r['Drink code']);
-
-  if (!todayEntries.length) return ctx.reply("Please get your pizza discount first. Just say 'pizza'. 🍕");
-  if (alreadyHasDrink) return ctx.reply("That's all for today! Come back tomorrow for another drink code. 🥤");
-
   const drinkCode = await getRandomCode('DrinkCode');
   if (!drinkCode) return ctx.reply('Sorry, drink codes are finished. 🥤');
-
-  await writeToSheet(name, username, userId, '', drinkCode);
+  await writeToSheet(ctx.from.first_name, ctx.from.username, userId, '', drinkCode);
   await ctx.reply(`Here is your drink code: ${drinkCode}`);
+});
+
+bot.hears(/.*/, async (ctx) => {
+  const msg = ctx.message.text.toLowerCase();
+  if (msg.includes('pizza') || msg.includes('hi') || msg.includes('discount') || msg.includes('drink') || msg.includes('yes')) return;
+  const index = userMessageMap.get(ctx.from.id) || 0;
+  const message = index < 3 ? pizzaMessages[index] : pizzaMessages[Math.floor(Math.random() * pizzaMessages.length)];
+  await ctx.reply(message);
+  userMessageMap.set(ctx.from.id, index + 1);
 });
 
 bot.launch();
