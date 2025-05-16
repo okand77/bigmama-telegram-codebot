@@ -39,13 +39,19 @@ async function hasReceivedCodeToday(telegramID) {
   const sheet = doc.sheetsByTitle['Users'];
   const rows = await sheet.getRows();
   const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' });
-
   return rows.filter(row => row.TelegramID === telegramID.toString() && new Date(row.Timestamp).toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' }) === today);
 }
 
 async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
   const sheet = doc.sheetsByTitle['Users'];
-  await sheet.addRow({ Timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Phnom_Penh' }), Name: name, Username: username, TelegramID: telegramID, Code: code, 'Drink code': drinkCode });
+  await sheet.addRow({
+    Timestamp: new Date().toLocaleString('en-US', { timeZone: 'Asia/Phnom_Penh' }),
+    Name: name,
+    Username: username,
+    TelegramID: telegramID,
+    Code: code,
+    'Drink code': drinkCode
+  });
 }
 
 async function getFollowupPizzaMessage() {
@@ -57,16 +63,14 @@ async function getFollowupPizzaMessage() {
   const counter = userMessageMap.get('counter') || 0;
   userMessageMap.set('counter', counter + 1);
 
-  if (counter < 3) return sorted[counter]?._rawData[1];
-  const rest = sorted.slice(3);
+  if (counter < 2) return sorted[counter]?._rawData[1];
+  const rest = sorted.slice(2);
   return rest[Math.floor(Math.random() * rest.length)]?._rawData[1];
 }
 
+// Şimdilik burası sabit yazıldı ki hata varsa anlayalım
 async function getDrinkMessage() {
-  const sheet = doc.sheetsByTitle['Drink message'];
-  const rows = await sheet.getRows();
-  const valid = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
-  return valid[Math.floor(Math.random() * valid.length)]?._rawData[1];
+  return 'Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤 If you want, just say \"drink\".';
 }
 
 bot.start((ctx) => {
@@ -94,7 +98,11 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   if (!code) return ctx.reply('Sorry, we are out of pizza codes. Bring a friend and try their phone! 🍕');
 
   await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
-  await ctx.reply(pizzaCount === 0 ? `Here is your discount code: ${code}` : `You already claimed your discount today.\nBut alright... I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: ${code}`);
+  await ctx.reply(
+    pizzaCount === 0
+      ? `Here is your discount code: ${code}`
+      : `You already claimed your discount today.\nBut alright... I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: ${code}`
+  );
 
   if (pizzaCount === 0) {
     const drinkPrompt = await getDrinkMessage();
@@ -127,6 +135,7 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
 bot.hears(/.*/, async (ctx) => {
   const msg = ctx.message.text.toLowerCase();
   if (msg.includes('pizza') || msg.includes('hi') || msg.includes('drink') || msg.includes('yes')) return;
+
   const response = await getFollowupPizzaMessage();
   if (response) await ctx.reply(response);
 });
