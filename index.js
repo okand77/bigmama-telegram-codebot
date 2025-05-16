@@ -7,7 +7,6 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const SHEET_ID = process.env.SPREADSHEET_ID;
 let doc;
-const userMap = new Map();
 
 async function loadSheet() {
   doc = new GoogleSpreadsheet(SHEET_ID);
@@ -35,83 +34,96 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
   return random._rawData[0];
 }
 
+async function hasReceivedCodeToday(telegramID) {
+  const sheet = doc.sheetsByTitle['Users'];
+  const rows = await sheet.getRows();
+  const today = new Date().toLocaleDateString();
+
+  return rows.some(row => row.TelegramID === telegramID.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+}
+
 async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
   const sheet = doc.sheetsByTitle['Users'];
   await sheet.addRow({ Timestamp: new Date().toLocaleString(), Name: name, Username: username, TelegramID: telegramID, Code: code, 'Drink code': drinkCode });
 }
 
-async function getDrinkMessage() {
-  const sheet = doc.sheetsByTitle['Drink message'];
+async function getMessage(sheetTitle) {
+  const sheet = doc.sheetsByTitle[sheetTitle];
   const rows = await sheet.getRows();
-  if (rows.length === 0) return null;
-  return rows[0]._rawData[0];
+  if (!rows.length) return '';
+  return rows[Math.floor(Math.random() * rows.length)]._rawData[0];
 }
 
-async function getRandomExtraMessage() {
-  const sheet = doc.sheetsByTitle['Messages'];
-  const rows = await sheet.getRows();
-  if (rows.length <= 3) return null;
-  const index = Math.floor(Math.random() * (rows.length - 3)) + 3;
-  return rows[index]._rawData[0];
-}
+const pizzaMessages = [
+  '😬 My boss will fire me for this...',
+  'Still too early to give another one 😅',
+  'Come back tomorrow. Just a few hours to go! ⏳',
+  'Bring a friend and they’ll get a code on their phone! 😉',
+  'Too many pizzas today! Even the oven needs a break. 🔥',
+  'You’re back?! You really love discounts huh? 😂',
+  'Hang tight! I’m reloading codes for tomorrow. ⏱️',
+  'You’ve reached max pizza joy for today! 🎉',
+  'Okay okay… tomorrow is another delicious day! 🍕',
+  'I feel like a discount dealer now 😄'
+];
 
 bot.start((ctx) => {
   ctx.reply('Welcome! You scanned the QR code and activated your discount.');
 });
 
 bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
-  const userId = ctx.from.id;
-  const today = new Date().toDateString();
   await loadSheet();
+  const userId = ctx.from.id;
 
-  const name = ctx.from.first_name;
-  const username = ctx.from.username;
-
-  if (userMap.get(userId) === today) {
-    const code = await getRandomCode('Code');
-    if (!code) return ctx.reply("Sorry, we're out of pizza codes. Bring a friend and claim from their phone! 🍕");
-
-    await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
-    const drinkMessage = await getDrinkMessage();
-    if (drinkMessage) await ctx.reply(drinkMessage);
-    return;
-  } else {
-    userMap.set(userId, today);
-  }
-
+  const alreadyClaimed = await hasReceivedCodeToday(userId);
   const code = await getRandomCode('Code');
-  if (!code) return ctx.reply("Sorry, we're out of pizza codes. Bring a friend and claim from their phone! 🍕");
+  if (!code) return ctx.reply('Sorry, we are out of pizza codes. Bring a friend and try their phone! 🍕');
 
-  await writeToSheet(name, username, userId, code);
-  await ctx.reply(`Here is your discount code: ${code}`);
+  if (alreadyClaimed) {
+    await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
+  } else {
+    await writeToSheet(ctx.from.first_name, ctx.from.username, ctx.from.id, code);
+    await ctx.reply(`Here is your discount code: ${code}`);
 
-  const drinkMessage = await getDrinkMessage();
-  if (drinkMessage) await ctx.reply(drinkMessage);
+    const drinkPrompt = await getMessage('Drink message');
+    if (drinkPrompt) {
+      await ctx.reply(drinkPrompt);
+    }
+  }
 });
 
 bot.hears(/^(yes|drink)$/i, async (ctx) => {
   await loadSheet();
-  const drinkCode = await getRandomCode('DrinkCode');
-  if (!drinkCode) return ctx.reply('Sorry, drink codes are finished.');
+  const userId = ctx.from.id;
+  const today = new Date().toLocaleDateString();
 
-  const rows = await doc.sheetsByTitle['Users'].getRows();
-  const latestRow = rows.reverse().find(row => row.TelegramID === ctx.from.id.toString());
-  if (latestRow) {
-    latestRow['Drink code'] = drinkCode;
-    await latestRow.save();
+  const sheet = doc.sheetsByTitle['Users'];
+  const rows = await sheet.getRows();
+  const todayRows = rows.filter(row => row.TelegramID === userId.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+
+  if (!todayRows.length) {
+    return ctx.reply("Please get your pizza discount first. Just say 'pizza'. 🍕");
   }
 
+  const alreadyHasDrink = todayRows[0]['Drink code'];
+  if (alreadyHasDrink) {
+    return ctx.reply("That's all for today! Come back tomorrow for another drink code. 🥤");
+  }
+
+  const drinkCode = await getRandomCode('DrinkCode');
+  if (!drinkCode) return ctx.reply('Sorry, drink codes are finished. 🥤');
+
+  todayRows[0]['Drink code'] = drinkCode;
+  await todayRows[0].save();
   await ctx.reply(`Here is your drink code: ${drinkCode}`);
 });
 
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id;
-  const today = new Date().toDateString();
-  if (userMap.get(userId) === today) {
-    await loadSheet();
-    const message = await getRandomExtraMessage();
-    if (message) await ctx.reply(message);
-  }
+bot.hears(/.*/, async (ctx) => {
+  const msg = ctx.message.text.toLowerCase();
+  if (msg.includes('pizza') || msg.includes('hi')) return;
+
+  const random = pizzaMessages[Math.floor(Math.random() * pizzaMessages.length)];
+  await ctx.reply(random);
 });
 
 bot.launch();
