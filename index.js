@@ -37,8 +37,8 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
 async function hasReceivedCodeToday(telegramID) {
   const sheet = doc.sheetsByTitle['Users'];
   const rows = await sheet.getRows();
-  const today = new Date().toLocaleDateString();
-  const count = rows.filter(row => row.TelegramID === telegramID.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+  const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' });
+  const count = rows.filter(row => row.TelegramID === telegramID.toString() && new Date(row.Timestamp).toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' }));
   return count.length;
 }
 
@@ -57,8 +57,8 @@ async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
 async function getDrinkMessage() {
   const sheet = doc.sheetsByTitle['Drink message'];
   const rows = await sheet.getRows();
-  const valid = rows.filter(row => row._rawData[0]);
-  if (!valid.length) return '';
+  const valid = rows.filter(row => row._rawData[0] && row._rawData[0].trim() !== '');
+  if (!valid.length) return 'Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤 If you want, just say "drink".';
   return valid[Math.floor(Math.random() * valid.length)]._rawData[0];
 }
 
@@ -82,8 +82,8 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   await loadSheet();
   const userId = ctx.from.id;
 
-  const phnomPenhTime = new Date().toLocaleString('en-US', { timeZone: 'Asia/Phnom_Penh' });
-  const hour = new Date(phnomPenhTime).getHours();
+  const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Phnom_Penh' });
+  const hour = new Date(now).getHours();
   if (hour < 12 || hour >= 24) {
     return ctx.reply('Discount codes are only available between 12:00 PM and 12:00 AM Phnom Penh time.');
   }
@@ -113,7 +113,7 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
 
   const sheet = doc.sheetsByTitle['Users'];
   const rows = await sheet.getRows();
-  const todayRows = rows.filter(row => row.TelegramID === userId.toString() && new Date(row.Timestamp).toLocaleDateString() === today);
+  const todayRows = rows.filter(row => row.TelegramID === userId.toString() && new Date(row.Timestamp).toLocaleDateString('en-US', { timeZone: 'Asia/Phnom_Penh' }) === today);
 
   const alreadyHasDrink = todayRows.some(row => row['Drink code']);
   if (alreadyHasDrink) {
@@ -128,7 +128,6 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
 });
 
 bot.hears(/.*/, async (ctx) => {
-  // Ignore known keywords
   const msg = ctx.message.text.toLowerCase();
   if (msg.includes('pizza') || msg.includes('hi') || msg.includes('drink') || msg.includes('yes')) return;
 
