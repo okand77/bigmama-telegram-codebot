@@ -5,7 +5,7 @@ const { Telegraf } = require('telegraf');
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-const SHEET_ID = '1D9ikPNR8kCKy1GC3jrDQRj5KnfZK5imSbsghNnQ7mXI';
+const SHEET_ID = process.env.SPREADSHEET_ID;
 let doc;
 const userMap = new Map();
 
@@ -37,14 +37,22 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
 
 async function writeToSheet(name, username, telegramID, code, drinkCode = '') {
   const sheet = doc.sheetsByTitle['Users'];
-  await sheet.addRow({
-    Timestamp: new Date().toLocaleString(),
-    Name: name,
-    Username: username,
-    TelegramID: telegramID,
-    Code: code,
-    'Drink code': drinkCode
-  });
+  await sheet.addRow({ Timestamp: new Date().toLocaleString(), Name: name, Username: username, TelegramID: telegramID, Code: code, 'Drink code': drinkCode });
+}
+
+async function getDrinkMessage() {
+  const sheet = doc.sheetsByTitle['Drink message'];
+  const rows = await sheet.getRows();
+  if (rows.length === 0) return null;
+  return rows[0]._rawData[0];
+}
+
+async function getRandomExtraMessage() {
+  const sheet = doc.sheetsByTitle['Messages'];
+  const rows = await sheet.getRows();
+  if (rows.length <= 3) return null;
+  const index = Math.floor(Math.random() * (rows.length - 3)) + 3;
+  return rows[index]._rawData[0];
 }
 
 bot.start((ctx) => {
@@ -56,22 +64,29 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
   const today = new Date().toDateString();
   await loadSheet();
 
+  const name = ctx.from.first_name;
+  const username = ctx.from.username;
+
   if (userMap.get(userId) === today) {
     const code = await getRandomCode('Code');
-    if (!code) return ctx.reply('Sorry, we are out of codes.');
+    if (!code) return ctx.reply("Sorry, we're out of pizza codes. Bring a friend and claim from their phone! 🍕");
 
     await ctx.reply("You already claimed your discount today.\nBut alright… I’m giving you one more. Don’t tell the boss. 😅\n🍕 Extra discount code: " + code);
+    const drinkMessage = await getDrinkMessage();
+    if (drinkMessage) await ctx.reply(drinkMessage);
     return;
   } else {
     userMap.set(userId, today);
   }
 
   const code = await getRandomCode('Code');
-  if (!code) return ctx.reply('Sorry, we are out of codes.');
+  if (!code) return ctx.reply("Sorry, we're out of pizza codes. Bring a friend and claim from their phone! 🍕");
 
-  await writeToSheet(ctx.from.first_name, ctx.from.username, ctx.from.id, code);
+  await writeToSheet(name, username, userId, code);
   await ctx.reply(`Here is your discount code: ${code}`);
-  await ctx.reply('Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤');
+
+  const drinkMessage = await getDrinkMessage();
+  if (drinkMessage) await ctx.reply(drinkMessage);
 });
 
 bot.hears(/^(yes|drink)$/i, async (ctx) => {
@@ -80,13 +95,23 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
   if (!drinkCode) return ctx.reply('Sorry, drink codes are finished.');
 
   const rows = await doc.sheetsByTitle['Users'].getRows();
-  const latestRow = rows.reverse().find(row => row.TelegramID == ctx.from.id);
+  const latestRow = rows.reverse().find(row => row.TelegramID === ctx.from.id.toString());
   if (latestRow) {
     latestRow['Drink code'] = drinkCode;
     await latestRow.save();
   }
 
   await ctx.reply(`Here is your drink code: ${drinkCode}`);
+});
+
+bot.on('text', async (ctx) => {
+  const userId = ctx.from.id;
+  const today = new Date().toDateString();
+  if (userMap.get(userId) === today) {
+    await loadSheet();
+    const message = await getRandomExtraMessage();
+    if (message) await ctx.reply(message);
+  }
 });
 
 bot.launch();
