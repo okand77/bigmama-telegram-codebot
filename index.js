@@ -7,7 +7,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const SHEET_ID = process.env.SPREADSHEET_ID;
 let doc;
-const messageCountMap = new Map(); // Kullanıcı başına mesaj sayacı
+const messageCountMap = new Map(); // Kullanıcı başına pizza mesaj sayaçları
 
 async function loadSheet() {
   doc = new GoogleSpreadsheet(SHEET_ID);
@@ -61,8 +61,6 @@ async function hasReceivedCodeCountToday(telegramID) {
   ).length;
 }
 
-const drinkMessage = `Would you like a code for a drink too? Pepsi is now just $0.50 instead of $2. 🥤 If you want, just say "drink".`;
-
 async function getFollowupPizzaMessage(userId) {
   const sheet = doc.sheetsByTitle['Messages'];
   const rows = await sheet.getRows();
@@ -83,6 +81,15 @@ async function getFollowupPizzaMessage(userId) {
   return message || "Oops! No message found.";
 }
 
+async function getDrinkMessage() {
+  const sheet = doc.sheetsByTitle['Drink message'];
+  const rows = await sheet.getRows();
+  const validRows = rows.filter(row => row._rawData[0] && !isNaN(parseInt(row._rawData[0])));
+  const sorted = validRows.sort((a, b) => parseInt(a._rawData[0]) - parseInt(b._rawData[0]));
+  const randomIndex = Math.floor(Math.random() * sorted.length);
+  return sorted[randomIndex]?._rawData[1] || "Would you like a drink too? 🥤";
+}
+
 bot.start((ctx) => {
   ctx.reply('Welcome! You scanned the QR code and activated your discount.');
 });
@@ -101,7 +108,10 @@ bot.hears(/^(hi|pizza|discount)$/i, async (ctx) => {
     if (!code) return ctx.reply("Sorry, pizza codes are finished. Bring a friend and try their phone. 🍕");
     await writeToSheet(ctx.from.first_name, ctx.from.username, userId, code);
     await ctx.reply(`Here is your discount code: ${code}`);
-    await ctx.reply(drinkMessage);
+
+    const drinkPrompt = await getDrinkMessage();
+    await ctx.reply(drinkPrompt);
+
   } else if (codeCount === 1) {
     const code = await getRandomCode('Code');
     if (!code) return ctx.reply("Sorry, pizza codes are finished. 🍕");
@@ -123,7 +133,9 @@ bot.hears(/^(yes|drink)$/i, async (ctx) => {
   const drinkCode = await getRandomCode('DrinkCode');
   if (!drinkCode) return ctx.reply('Sorry, drink codes are finished. 🥤');
   await writeToSheet(ctx.from.first_name, ctx.from.username, userId, '', drinkCode);
+  const msg = await getDrinkMessage();
   await ctx.reply(`Here is your drink code: ${drinkCode}`);
+  await ctx.reply(msg);
 });
 
 bot.hears(/.*/, async (ctx) => {
