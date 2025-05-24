@@ -20,12 +20,12 @@ async function getRandomCode(sheetTitle, columnIndex = 1) {
   const sheet = doc.sheetsByTitle[sheetTitle];
   await sheet.loadCells();
   const rows = await sheet.getRows();
-  const unused = rows.filter(row => row._rawData[columnIndex] !== 'YES');
+  const unused = rows.filter(row => row._rawData[columnIndex] !== 'YES')
 
   if (unused.length === 0) return null;
 
   const random = unused[Math.floor(Math.random() * unused.length)];
-  const rowIndex = random.rowIndex;
+  const rowIndex = random.rowNumber - 1; // rowNumber is 1-based
   const cell = sheet.getCell(rowIndex, columnIndex);
 
   cell.value = 'YES';
